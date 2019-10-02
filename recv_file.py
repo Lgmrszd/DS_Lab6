@@ -29,6 +29,8 @@ class ClientListener(Thread):
         self.path = path
         self.__file_size = 0
         self.__bytes_received = 0
+        self.__remaining = 0
+        self.receiving = False
         # In case if write happens and file is closed
         self.__fd = open(os.devnull, "wb")
 
@@ -52,33 +54,64 @@ class ClientListener(Thread):
 
     def run(self):
         while True:
-            data = self.sock.recv(1024)
+            # data_list = []
+            # while True:
+            #     data_packet = self.sock.recv(4096)
+            #     if not data_packet:
+            #         break
+            #     data_list.append(data_packet)
+            # data = b"".join(data_list)
+            # print(data)
+            # data = self.sock.recv(1024)
+            data = self.sock.recv(4096)
             if data:
-                packet = common.MyPacket.deserialize(data)
-                packet_code = packet.get_code()
-                if packet_code == common.CODE_INIT:
-                    filename = guess_filename(self.path, packet.filename)
-                    self.__file_size = packet.filesize
-                    self.init_file(filename)
-                    print(f"{self.name}: File size {self.__file_size}")
-                    print(f"{self.name}: Saving as {filename}")
-                    packet_bytes = common.ResponsePacket(common.CODE_INIT_OK, f"Saving as {filename}").serialize()
-                    self.sock.sendall(packet_bytes)
-                elif packet_code == common.CODE_DATA:
-                    self.write_file(packet.data)
-                    print(f"{self.name}: Got {len(packet.data)} bytes, "
+                if self.receiving:
+                    self.write_file(data)
+                    print(f"{self.name}: Got {len(data)} bytes, "
                           f"total {self.__bytes_received}/{self.__file_size} "
                           f"({(self.__bytes_received/self.__file_size):.2%})")
+                    self.__remaining -= len(data)
                     packet_bytes = common.ResponsePacket(common.CODE_DATA_OK, f"Success").serialize()
                     self.sock.sendall(packet_bytes)
-                elif packet_code == common.CODE_END:
-                    self.close_file()
-                    self.sock.shutdown(socket.SHUT_RD)
-                    packet_bytes = common.ResponsePacket(common.CODE_END_OK, f"File received").serialize()
-                    self.sock.sendall(packet_bytes)
-                    self.sock.close()
-                    print(self.name + ' disconnected')
-                    return
+                    if self.__remaining == 0:
+                        self.receiving = False
+                        print(f"{self.name}: file received")
+                        self.close_file()
+                        data = self.sock.recv(4096)
+                        packet = common.MyPacket.deserialize(data)
+                        packet_code = packet.get_code()
+                        if packet_code == common.CODE_END:
+                            print(f"{self.name}: close packet received")
+                        else:
+                            print(f"{self.name}: Data malfunction")
+                        self.sock.shutdown(socket.SHUT_RD)
+                        packet_bytes = common.ResponsePacket(common.CODE_END_OK, f"File received").serialize()
+                        self.sock.sendall(packet_bytes)
+                        self.sock.close()
+                        print(self.name + ' disconnected')
+                        return
+                else:
+                    packet = common.MyPacket.deserialize(data)
+                    packet_code = packet.get_code()
+                    if packet_code == common.CODE_INIT:
+                        filename = guess_filename(self.path, packet.filename)
+                        self.__file_size = packet.filesize
+                        self.__remaining = packet.filesize
+                        self.receiving = True
+                        self.init_file(filename)
+                        print(f"{self.name}: File size {self.__file_size}")
+                        print(f"{self.name}: Saving as {filename}")
+                        packet_bytes = common.ResponsePacket(common.CODE_INIT_OK, f"Saving as {filename}").serialize()
+                        self.sock.sendall(packet_bytes)
+                    # elif packet_code == common.CODE_END:
+                    #     print("AAAA")
+                    #     self.close_file()
+                    #     self.sock.shutdown(socket.SHUT_RD)
+                    #     packet_bytes = common.ResponsePacket(common.CODE_END_OK, f"File received").serialize()
+                    #     self.sock.sendall(packet_bytes)
+                    #     self.sock.close()
+                    #     print(self.name + ' disconnected')
+                    #     return
             else:
                 self.close_file()
                 self.sock.close()

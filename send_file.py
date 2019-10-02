@@ -25,13 +25,11 @@ def main():
     in_packet_bytes = s.recv(1024)
     in_packet = common.MyPacket.deserialize(in_packet_bytes)
     print(f"Code {in_packet.get_code()}, message: {in_packet.message}")
-    bytes_read = fd.read(512)
+    bytes_read = fd.read(4096)
     bytes_sent = 0
     while bytes_read:
         bytes_sent += len(bytes_read)
-        data_packet = common.DataPacket(bytes_read)
-        data_packet_bytes = data_packet.serialize()
-        s.sendall(data_packet_bytes)
+        s.sendall(bytes_read)
 
         in_packet_bytes = s.recv(1024)
         in_packet = common.MyPacket.deserialize(in_packet_bytes)
@@ -41,9 +39,9 @@ def main():
               f"total {bytes_sent}/{file_size} "
               f"({(bytes_sent / file_size):.2%})")
 
-        bytes_read = fd.read(512)
+        bytes_read = fd.read(4096)
 
-    close_packet = common.DataPacket(bytes_read)
+    close_packet = common.CloserPacket()
     close_packet_bytes = close_packet.serialize()
     s.sendall(close_packet_bytes)
     s.shutdown(socket.SHUT_WR)
